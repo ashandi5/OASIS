@@ -1,0 +1,19 @@
+{
+  "project": "OASIS GPU Data Center",
+  "status": "FAIL",
+  "peak_gpu_temperature_c": 84.45202729545099,
+  "peak_gpu_time_s": 3899.0,
+  "gpu_limit_c": 85.0,
+  "first_gpu_limit_violation_s": null,
+  "peak_secondary_temperature_c": 71.01181465664402,
+  "secondary_limit_c": 55.0,
+  "average_pue": 1.2830450656280536,
+  "peak_facility_power_w": 1246444.0466187014,
+  "flow_sizing": {
+    "design_heat_w": 1000000.0,
+    "mass_flow_kg_s": 23.923444976076556,
+    "volume_flow_m3_s": 0.023995431269886215,
+    "design_volume_flow_m3_s": 0.027594745960369146,
+    "design_volume_flow_gpm": 437.3856365747962
+  }
+}

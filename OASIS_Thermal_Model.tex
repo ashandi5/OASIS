@@ -1,0 +1,722 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{siunitx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!55!black,
+    urlcolor=blue!55!black,
+    citecolor=blue!55!black
+}
+
+\sisetup{per-mode=symbol}
+\DeclareSIUnit\gpm{gpm}
+
+\title{OASIS: Mathematical Model for a\\Liquid-Cooled GPU Data Center}
+\author{Aarav Shandilya and the OASIS Engineering Team}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+OASIS is a coordinated architectural and engineering model of a high-density GPU
+data center. The Autodesk Revit model defines the physical arrangement of racks,
+coolant distribution units, pumps, piping, electrical equipment, and heat-rejection
+equipment. The mathematical model evaluates whether the proposed cooling system can
+maintain safe GPU and coolant temperatures during changing computational loads,
+high outdoor temperatures, and equipment failures. This report defines the governing
+energy, heat-transfer, fluid-flow, and numerical equations used in the model.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Project Objective}
+
+The primary engineering question is:
+
+\begin{quote}
+How can a closed-loop liquid-cooling system be scaled across multiple GPU racks
+while maintaining safe equipment temperatures and minimizing cooling energy and
+water consumption?
+\end{quote}
+
+The cooling path is modeled as
+
+\begin{center}
+GPU $\rightarrow$ cold plate $\rightarrow$ secondary coolant loop
+$\rightarrow$ coolant distribution unit (CDU) $\rightarrow$ facility loop
+$\rightarrow$ dry cooler or chiller $\rightarrow$ outdoor environment.
+\end{center}
+
+The initial model uses lumped thermal nodes. Each node is treated as having a
+single representative temperature. This approximation makes the equations suitable
+for an RK4 differential-equation solver while preserving the dominant transient
+thermal behavior.
+
+\section{Symbols and Units}
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{>{\(}l<{\)} p{8.3cm} l}
+\toprule
+\text{Symbol} & \text{Definition} & \text{SI unit} \\
+\midrule
+T_g & Effective GPU and cold-plate temperature & \si{\degreeCelsius} \\
+T_s & Secondary coolant-loop temperature & \si{\degreeCelsius} \\
+T_p & Primary facility-loop temperature & \si{\degreeCelsius} \\
+T_a & Ambient or outdoor heat-sink temperature & \si{\degreeCelsius} \\
+P_{\mathrm{IT}} & Total electrical power converted to IT heat & \si{\watt} \\
+\dot Q & Heat-transfer rate & \si{\watt} \\
+C & Lumped thermal capacitance & \si{\joule\per\kelvin} \\
+m & Mass & \si{\kilogram} \\
+c_p & Specific heat capacity at constant pressure & \si{\joule\per\kilogram\per\kelvin} \\
+h & Convective heat-transfer coefficient & \si{\watt\per\square\metre\per\kelvin} \\
+U & Overall heat-transfer coefficient & \si{\watt\per\square\metre\per\kelvin} \\
+A & Effective heat-transfer area & \si{\square\metre} \\
+G & Effective thermal conductance, equal to \(UA\) or \(hA\) & \si{\watt\per\kelvin} \\
+R_{\mathrm{th}} & Thermal resistance, equal to \(1/G\) & \si{\kelvin\per\watt} \\
+\dot m & Coolant mass-flow rate & \si{\kilogram\per\second} \\
+\dot V & Coolant volumetric-flow rate & \si{\cubic\metre\per\second} \\
+\rho & Coolant density & \si{\kilogram\per\cubic\metre} \\
+\Delta p & Pressure difference or pressure loss & \si{\pascal} \\
+\eta & Pump or equipment efficiency & dimensionless \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Temperature differences in degrees Celsius and kelvin have the same numerical value.
+Absolute temperatures must be converted to kelvin when used in radiation equations.
+
+\section{Electrical Load Converted to Heat}
+
+Almost all electrical energy consumed by IT equipment eventually becomes heat inside
+or near the data center. The rack heat load is approximated by
+
+\begin{equation}
+P_{\mathrm{rack}}(t)
+= N_g P_{g,\mathrm{rated}}u_g(t)
++ P_{\mathrm{CPU}}(t)
++ P_{\mathrm{memory}}(t)
++ P_{\mathrm{network}}(t)
++ P_{\mathrm{other}}(t),
+\end{equation}
+
+where \(u_g(t)\) is the GPU utilization fraction. The full data-hall load is
+
+\begin{equation}
+P_{\mathrm{IT}}(t)=\sum_{r=1}^{N_r}P_{\mathrm{rack},r}(t).
+\end{equation}
+
+If identical racks are used with a load-diversity factor \(f_d\),
+
+\begin{equation}
+P_{\mathrm{IT,design}}=N_r f_d P_{\mathrm{rack,rated}}.
+\end{equation}
+
+\section{First Law of Thermodynamics}
+
+For a control volume with no mechanical work other than separately modeled pump work,
+the energy balance is
+
+\begin{equation}
+\frac{dE}{dt}=\dot Q_{\mathrm{in}}-\dot Q_{\mathrm{out}}+P_{\mathrm{generated}}.
+\end{equation}
+
+For a lumped node with approximately constant thermal capacitance,
+
+\begin{equation}
+E=CT,
+\qquad
+C=mc_p,
+\end{equation}
+
+so that
+
+\begin{equation}
+C\frac{dT}{dt}=\dot Q_{\mathrm{in}}-\dot Q_{\mathrm{out}}+P_{\mathrm{generated}}.
+\end{equation}
+
+This equation is the foundation of every thermal node in the OASIS model.
+
+\section{Newton's Law of Cooling}
+
+Convective heat transfer between a surface and a fluid is modeled using
+
+\begin{equation}
+\dot Q=hA(T_{\mathrm{hot}}-T_{\mathrm{cold}}).
+\end{equation}
+
+Because \(h\) and \(A\) appear together, the model defines an effective thermal
+conductance
+
+\begin{equation}
+G=hA=\frac{1}{R_{\mathrm{th}}}.
+\end{equation}
+
+The heat transferred from the GPU assembly to the secondary coolant is therefore
+
+\begin{equation}
+\dot Q_{g\rightarrow s}=G_{gs}(T_g-T_s).
+\end{equation}
+
+\subsection{Single-Node Baseline Model}
+
+Before solving the complete coupled model, a single-node model will be used for
+verification:
+
+\begin{equation}
+C\frac{dT}{dt}=P-G(T-T_a).
+\label{eq:one-node}
+\end{equation}
+
+For constant \(P\), \(G\), and \(T_a\), the analytical solution is
+
+\begin{equation}
+T(t)=T_a+\frac{P}{G}
++\left[T(0)-T_a-\frac{P}{G}\right]
+e^{-Gt/C}.
+\label{eq:analytical}
+\end{equation}
+
+The steady-state temperature is
+
+\begin{equation}
+T_{\infty}=T_a+\frac{P}{G},
+\end{equation}
+
+and the thermal time constant is
+
+\begin{equation}
+\tau=\frac{C}{G}.
+\end{equation}
+
+Equation~\eqref{eq:analytical} provides a direct test of the RK4 implementation.
+
+\section{Coupled GPU and Coolant Model}
+
+\subsection{GPU Node}
+
+The GPU and cold-plate energy balance is
+
+\begin{equation}
+C_g\frac{dT_g}{dt}
+=P_{\mathrm{IT}}(t)-G_{gs}(T_g-T_s).
+\label{eq:gpu}
+\end{equation}
+
+Thus,
+
+\begin{equation}
+\frac{dT_g}{dt}
+=\frac{P_{\mathrm{IT}}(t)-G_{gs}(T_g-T_s)}{C_g}.
+\end{equation}
+
+\subsection{Secondary Coolant Node}
+
+The secondary coolant receives heat from the GPUs and rejects it through the CDU
+heat exchanger:
+
+\begin{equation}
+C_s\frac{dT_s}{dt}
+=G_{gs}(T_g-T_s)-G_{sp}(T_s-T_p).
+\label{eq:secondary}
+\end{equation}
+
+\subsection{Primary Facility-Loop Node}
+
+The primary loop receives heat through the CDU and rejects it to the outdoor system:
+
+\begin{equation}
+C_p\frac{dT_p}{dt}
+=G_{sp}(T_s-T_p)-\dot Q_{\mathrm{reject}}.
+\label{eq:primary}
+\end{equation}
+
+The unconstrained outdoor heat rejection is
+
+\begin{equation}
+\dot Q_{\mathrm{UA}}
+=G_{pa}(T_p-T_a).
+\end{equation}
+
+To represent a finite equipment rating and prevent nonphysical reverse heat rejection,
+
+\begin{equation}
+\dot Q_{\mathrm{reject}}
+=\min\left\{
+\max\left[G_{pa}(T_p-T_a),0\right],
+\dot Q_{\max}
+\right\}.
+\label{eq:qreject}
+\end{equation}
+
+Equations~\eqref{eq:gpu}--\eqref{eq:qreject} form the principal transient model.
+
+\section{Coolant Heat Transport and Flow Sizing}
+
+The sensible heat carried by a flowing coolant is
+
+\begin{equation}
+\dot Q=\dot m c_p(T_{\mathrm{return}}-T_{\mathrm{supply}}).
+\label{eq:flowheat}
+\end{equation}
+
+The required mass-flow rate is
+
+\begin{equation}
+\dot m
+=\frac{\dot Q}
+{c_p(T_{\mathrm{return}}-T_{\mathrm{supply}})}.
+\label{eq:mdot}
+\end{equation}
+
+Mass flow and volumetric flow are related by
+
+\begin{equation}
+\dot V=\frac{\dot m}{\rho}.
+\end{equation}
+
+For \(N_r\) identical racks,
+
+\begin{equation}
+\dot m_{\mathrm{total}}
+=N_r\dot m_{\mathrm{rack}}.
+\end{equation}
+
+The design flow should include a margin \(f_m\):
+
+\begin{equation}
+\dot m_{\mathrm{design}}
+=(1+f_m)\dot m_{\mathrm{total}}.
+\end{equation}
+
+\section{Heat-Exchanger Model}
+
+The initial CDU and dry-cooler models use the conductance approximation
+
+\begin{equation}
+\dot Q_{\mathrm{HX}}=UA\Delta T_{\mathrm{effective}}.
+\end{equation}
+
+If inlet and outlet temperatures are available, the log-mean temperature difference
+may be used:
+
+\begin{equation}
+\dot Q_{\mathrm{HX}}=UA\Delta T_{\mathrm{lm}},
+\end{equation}
+
+where
+
+\begin{equation}
+\Delta T_{\mathrm{lm}}
+=\frac{\Delta T_1-\Delta T_2}
+{\ln\left(\Delta T_1/\Delta T_2\right)}.
+\end{equation}
+
+For a counterflow heat exchanger,
+
+\begin{align}
+\Delta T_1&=T_{h,\mathrm{in}}-T_{c,\mathrm{out}},\\
+\Delta T_2&=T_{h,\mathrm{out}}-T_{c,\mathrm{in}}.
+\end{align}
+
+When detailed manufacturer data are available, an effectiveness-NTU formulation may
+replace the simple \(UA\) approximation:
+
+\begin{equation}
+\dot Q_{\mathrm{HX}}=\varepsilon C_{\min}
+(T_{h,\mathrm{in}}-T_{c,\mathrm{in}}),
+\end{equation}
+
+with
+
+\begin{equation}
+C_{\min}=\min(\dot m_h c_{p,h},\dot m_c c_{p,c}),
+\qquad
+\mathrm{NTU}=\frac{UA}{C_{\min}}.
+\end{equation}
+
+\section{Pipe Pressure Loss}
+
+The average coolant velocity in a circular pipe is
+
+\begin{equation}
+v=\frac{\dot V}{A_p}
+=\frac{4\dot V}{\pi D^2}.
+\end{equation}
+
+The Reynolds number is
+
+\begin{equation}
+\mathrm{Re}=\frac{\rho vD}{\mu},
+\end{equation}
+
+where \(\mu\) is the dynamic viscosity. Straight-pipe pressure loss is estimated with
+the Darcy--Weisbach equation:
+
+\begin{equation}
+\Delta p_{\mathrm{major}}
+=f\frac{L}{D}\frac{\rho v^2}{2}.
+\label{eq:darcy}
+\end{equation}
+
+Minor losses from fittings, valves, strainers, manifolds, and entrances are
+
+\begin{equation}
+\Delta p_{\mathrm{minor}}
+=\sum_i K_i\frac{\rho v^2}{2}.
+\end{equation}
+
+The total loop pressure loss is
+
+\begin{equation}
+\Delta p_{\mathrm{total}}
+=\Delta p_{\mathrm{major}}
++\Delta p_{\mathrm{minor}}
++\Delta p_{\mathrm{equipment}}.
+\end{equation}
+
+\section{Pump Power}
+
+The hydraulic power transferred to the coolant is
+
+\begin{equation}
+P_{\mathrm{hydraulic}}=\Delta p_{\mathrm{total}}\dot V.
+\end{equation}
+
+Accounting for pump and motor efficiency,
+
+\begin{equation}
+P_{\mathrm{pump}}
+=\frac{\Delta p_{\mathrm{total}}\dot V}
+{\eta_{\mathrm{pump}}\eta_{\mathrm{motor}}}.
+\label{eq:pump}
+\end{equation}
+
+For geometrically similar operation, the pump affinity laws give
+
+\begin{align}
+\frac{\dot V_2}{\dot V_1}&=\frac{N_2}{N_1},\\
+\frac{H_2}{H_1}&=\left(\frac{N_2}{N_1}\right)^2,\\
+\frac{P_2}{P_1}&=\left(\frac{N_2}{N_1}\right)^3,
+\end{align}
+
+where \(N\) is pump rotational speed and \(H\) is pump head.
+
+\section{Conduction and Insulation}
+
+One-dimensional conduction through a flat layer is modeled by Fourier's Law:
+
+\begin{equation}
+\dot Q_{\mathrm{cond}}
+=\frac{kA}{L}(T_1-T_2).
+\end{equation}
+
+For radial conduction through cylindrical pipe insulation,
+
+\begin{equation}
+\dot Q_{\mathrm{pipe}}
+=\frac{2\pi kL_p(T_i-T_o)}
+{\ln(r_o/r_i)}.
+\end{equation}
+
+An overall thermal resistance network may be written as
+
+\begin{equation}
+\dot Q=\frac{T_{\mathrm{hot}}-T_{\mathrm{cold}}}
+{R_{\mathrm{total}}},
+\end{equation}
+
+where series resistances add:
+
+\begin{equation}
+R_{\mathrm{total}}=R_{\mathrm{conv},i}
++R_{\mathrm{cond}}
++R_{\mathrm{conv},o}.
+\end{equation}
+
+\section{Residual Room Heat}
+
+Direct-to-chip cooling does not necessarily capture all server heat. If the liquid
+capture fraction is \(\phi\), then
+
+\begin{align}
+\dot Q_{\mathrm{liquid}}&=\phi P_{\mathrm{IT}},\\
+\dot Q_{\mathrm{room}}&=(1-\phi)P_{\mathrm{IT}}.
+\end{align}
+
+The residual room-air node may be represented by
+
+\begin{equation}
+C_{\mathrm{air}}\frac{dT_{\mathrm{room}}}{dt}
+=(1-\phi)P_{\mathrm{IT}}
+-G_{\mathrm{room}}(T_{\mathrm{room}}-T_{\mathrm{supply,air}}).
+\end{equation}
+
+This term supports sizing of in-row or room-level air cooling for memory, power
+supplies, networking equipment, and other non-liquid-cooled components.
+
+\section{Facility Energy Metrics}
+
+Total facility power is approximated as
+
+\begin{equation}
+P_{\mathrm{facility}}
+=P_{\mathrm{IT}}
++P_{\mathrm{pumps}}
++P_{\mathrm{fans}}
++P_{\mathrm{chiller}}
++P_{\mathrm{UPS,loss}}
++P_{\mathrm{other}}.
+\end{equation}
+
+Power usage effectiveness is
+
+\begin{equation}
+\mathrm{PUE}
+=\frac{P_{\mathrm{facility}}}{P_{\mathrm{IT}}}.
+\end{equation}
+
+Cooling-system coefficient of performance is
+
+\begin{equation}
+\mathrm{COP}
+=\frac{\dot Q_{\mathrm{removed}}}{P_{\mathrm{cooling,electric}}}.
+\end{equation}
+
+A sealed dry-cooler loop is modeled with zero routine evaporative process-water use.
+If an evaporative system is later considered, water use must be added as a separate
+mass balance.
+
+\section{RK4 Numerical Solver}
+
+The coupled system is written in vector form as
+
+\begin{equation}
+\frac{d\mathbf{y}}{dt}=\mathbf{f}(t,\mathbf{y}),
+\qquad
+\mathbf{y}
+=\begin{bmatrix}
+T_g & T_s & T_p & T_{\mathrm{room}}
+\end{bmatrix}^{\mathsf T}.
+\end{equation}
+
+For time step \(\Delta t\), classical fourth-order Runge--Kutta calculates
+
+\begin{align}
+\mathbf{k}_1&=\mathbf{f}(t_n,\mathbf{y}_n),\\
+\mathbf{k}_2&=\mathbf{f}\left(t_n+\frac{\Delta t}{2},
+\mathbf{y}_n+\frac{\Delta t}{2}\mathbf{k}_1\right),\\
+\mathbf{k}_3&=\mathbf{f}\left(t_n+\frac{\Delta t}{2},
+\mathbf{y}_n+\frac{\Delta t}{2}\mathbf{k}_2\right),\\
+\mathbf{k}_4&=\mathbf{f}\left(t_n+\Delta t,
+\mathbf{y}_n+\Delta t\mathbf{k}_3\right).
+\end{align}
+
+The next state is
+
+\begin{equation}
+\mathbf{y}_{n+1}
+=\mathbf{y}_n
++\frac{\Delta t}{6}
+\left(\mathbf{k}_1+2\mathbf{k}_2+2\mathbf{k}_3+\mathbf{k}_4\right).
+\label{eq:rk4}
+\end{equation}
+
+RK4 has global truncation error of order \(\mathcal{O}(\Delta t^4)\) when the
+solution is sufficiently smooth. Time-step convergence will be checked by repeating
+the simulation with \(\Delta t\), \(\Delta t/2\), and \(\Delta t/4\).
+
+\section{Control and Failure Functions}
+
+GPU power may be represented using a piecewise load profile:
+
+\begin{equation}
+P_{\mathrm{IT}}(t)=
+\begin{cases}
+P_{\mathrm{idle}}, & 0\le t<t_1,\\
+P_{\mathrm{full}}, & t_1\le t<t_2,\\
+P_{\mathrm{reduced}}, & t\ge t_2.
+\end{cases}
+\end{equation}
+
+A pump failure at time \(t_f\) may be modeled using
+
+\begin{equation}
+\dot m(t)=
+\begin{cases}
+\dot m_0, & t<t_f,\\
+\alpha\dot m_0, & t\ge t_f,
+\end{cases}
+\end{equation}
+
+where \(0\le\alpha<1\). For a complete flow loss, \(\alpha=0\). A standby pump
+starting after delay \(t_d\) can be added as a third interval.
+
+N+1 heat rejection can be modeled as
+
+\begin{equation}
+\dot Q_{\max,\mathrm{available}}
+=N_{\mathrm{available}}\dot Q_{\max,\mathrm{unit}}.
+\end{equation}
+
+\section{Worked Flow-Rate Example}
+
+Consider \(N_r=20\) racks, each producing \(\SI{50}{\kilo\watt}\). The total
+design heat is
+
+\begin{equation}
+\dot Q_{\mathrm{total}}
+=20(\SI{50}{\kilo\watt})
+=\SI{1.00}{\mega\watt}.
+\end{equation}
+
+Using water with
+
+\begin{equation}
+c_p\approx\SI{4180}{\joule\per\kilogram\per\kelvin}
+\end{equation}
+
+and a design temperature rise of \(\Delta T=\SI{10}{\kelvin}\),
+
+\begin{align}
+\dot m
+&=\frac{\SI{1.00e6}{\watt}}
+{(\SI{4180}{\joule\per\kilogram\per\kelvin})(\SI{10}{\kelvin})}\\
+&\approx\SI{23.9}{\kilogram\per\second}.
+\end{align}
+
+Taking \(\rho\approx\SI{1000}{\kilogram\per\cubic\metre}\),
+
+\begin{equation}
+\dot V
+=\frac{23.9}{1000}
+=\SI{0.0239}{\cubic\metre\per\second}
+\approx\SI{379}{\gpm}.
+\end{equation}
+
+With a \(15\%\) design margin,
+
+\begin{equation}
+\dot V_{\mathrm{design}}
+=1.15(\SI{379}{\gpm})
+\approx\SI{436}{\gpm}.
+\end{equation}
+
+This is a conceptual sizing calculation. Final design flow depends on the selected
+coolant, allowable temperature rise, equipment curves, redundancy, and pipe losses.
+
+\section{Inputs and Outputs}
+
+\subsection{Principal Inputs}
+
+\begin{itemize}[leftmargin=2em]
+    \item Rack count, GPU count, and load profile
+    \item GPU and coolant initial temperatures
+    \item Thermal capacitances \(C_g\), \(C_s\), and \(C_p\)
+    \item Conductances \(G_{gs}\), \(G_{sp}\), and \(G_{pa}\)
+    \item Coolant density, specific heat, and viscosity
+    \item Secondary and primary flow rates
+    \item Pipe lengths, diameters, roughness, and fitting loss coefficients
+    \item Pump efficiency and equipment pressure losses
+    \item Chiller or dry-cooler maximum heat-rejection capacity
+    \item Outdoor temperature profile
+    \item Maximum permitted GPU and coolant temperatures
+\end{itemize}
+
+\subsection{Principal Outputs}
+
+\begin{itemize}[leftmargin=2em]
+    \item GPU, secondary-coolant, primary-loop, and room temperatures versus time
+    \item Peak temperature and time of occurrence
+    \item Time before a thermal safety limit is exceeded
+    \item Heat generated, transported, stored, and rejected
+    \item Required rack and facility coolant flow
+    \item Loop pressure loss and pump power
+    \item Cooling electrical power, COP, and estimated PUE
+    \item Pass or fail result for normal and failure scenarios
+\end{itemize}
+
+\section{Modeling Assumptions}
+
+The first version of the model will use the following assumptions:
+
+\begin{enumerate}[leftmargin=2em]
+    \item Each thermal node is spatially uniform.
+    \item Coolant properties are constant over the operating temperature range.
+    \item There is no phase change in the secondary or primary coolant loops.
+    \item Nearly all IT electrical power becomes heat.
+    \item Effective conductances represent combined cold-plate, convection, contact,
+          and heat-exchanger resistances.
+    \item Heat-rejection equipment has a finite rated capacity.
+    \item The closed loop has no routine evaporative water loss unless an evaporative
+          heat-rejection system is explicitly selected.
+    \item Radiation is small relative to forced convection and liquid heat transport
+          and is omitted from the initial model.
+\end{enumerate}
+
+\section{Validation Plan}
+
+\begin{enumerate}[leftmargin=2em]
+    \item Compare the RK4 result for Equation~\eqref{eq:one-node} with the analytical
+          solution in Equation~\eqref{eq:analytical}.
+    \item Perform time-step convergence testing.
+    \item Confirm energy conservation by integrating generated and rejected heat.
+    \item Compare steady-state flow and heat rejection with
+          Equation~\eqref{eq:flowheat}.
+    \item Compare pump calculations with manufacturer performance curves.
+    \item Replace placeholder conductances and capacities with manufacturer data.
+    \item If possible, use a small-scale step-load experiment to estimate thermal
+          capacitance and conductance.
+\end{enumerate}
+
+\section{Revit Integration}
+
+Each rack family should store the parameters
+
+\begin{center}
+Rack ID, GPU count, electrical power, design heat load, coolant flow, supply
+temperature, return temperature, and assigned CDU.
+\end{center}
+
+Revit schedules will be exported to CSV and used as model inputs. The computed flow,
+capacity, and redundancy results will be used to revise pipe sizes, pump selection,
+CDU quantities, equipment placement, and clearances in the Revit model.
+
+\section{Proposed Simulation Cases}
+
+\begin{enumerate}[leftmargin=2em]
+    \item Normal steady operation
+    \item Idle-to-full-load GPU step
+    \item Phoenix summer outdoor-temperature condition
+    \item Reduced coolant flow
+    \item Failure of one pump
+    \item Failure of one CDU
+    \item Loss of outdoor heat rejection
+    \item Emergency IT shutdown
+    \item N+1 redundant cooling operation
+    \item Restart after a cooling interruption
+\end{enumerate}
+
+\section{Conclusion}
+
+The OASIS mathematical model connects the Revit design to quantitative thermal and
+fluid performance. Conservation of energy, Newton's Law of Cooling, sensible heat
+transport, heat-exchanger relations, Darcy--Weisbach pressure loss, pump power, and
+RK4 integration provide a defensible framework for evaluating a scaled GPU cooling
+system. The model will show not only the expected operating temperature, but also
+how rapidly the system responds to computational load changes and how long it remains
+safe after a cooling-system failure.
+
+\end{document}
